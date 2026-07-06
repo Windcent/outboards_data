@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Outboards Performance Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Hammer.js (required for panning in chartjs-plugin-zoom) -->
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <!-- Chart.js Zoom Plugin CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+</head>
+<body>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading performance data (5.7 MB)...</div>
+  </div>
+
+  <header>
+    <div>
+      <h1>Outboards <span>Performance Viewer</span></h1>
+      <div class="subtitle">Compare RPM vs Performance curves for different boat models</div>
+    </div>
+    <button class="help-btn" id="helpBtn" title="Help / View Guide" aria-label="Help Guide">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    </button>
+  </header>
+
+  <div class="app-container">
+    <!-- Sidebar collapse toggle (outside sidebar so overflow:hidden doesn't clip it) -->
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+
+    <!-- Sidebar Controls -->
+    <aside class="controls-sidebar" id="controlsSidebar">
+
+      <div class="sidebar-content">
+        <!-- Engine Selector -->
+        <div class="control-group">
+          <div class="control-header">
+            <label for="engineSearch">Search & Select Engines</label>
+            <button type="button" class="clear-filter-btn" id="clearEnginesBtn" style="display: none;">Clear</button>
+          </div>
+          <input type="text" id="engineSearch" class="search-input" placeholder="Type to filter engines...">
+          <div class="select-wrapper">
+            <select id="engineSelect">
+              <option value="" disabled selected>Select an engine...</option>
+            </select>
+          </div>
+          <!-- Selected Engines Container -->
+          <div class="selected-chips-container" id="selectedEnginesList"></div>
+        </div>
+
+        <!-- Filters -->
+        <div class="control-group">
+          <div class="control-header">
+            <label for="powerSelect">Filter by Power (HP)</label>
+            <button type="button" class="clear-filter-btn" id="clearPowersBtn" style="display: none;">Clear</button>
+          </div>
+          <div class="select-wrapper">
+            <select id="powerSelect">
+              <option value="" disabled selected>Select Horsepower...</option>
+            </select>
+          </div>
+          <div class="selected-chips-container" id="selectedPowersList"></div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-header">
+            <label for="configSelect">Filter by Configuration</label>
+            <button type="button" class="clear-filter-btn" id="clearConfigsBtn" style="display: none;">Clear</button>
+          </div>
+          <div class="select-wrapper">
+            <select id="configSelect">
+              <option value="" disabled selected>Select Configuration...</option>
+            </select>
+          </div>
+          <div class="selected-chips-container" id="selectedConfigsList"></div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-header">
+            <label for="hullSelect">Filter by Hull Type</label>
+            <button type="button" class="clear-filter-btn" id="clearHullsBtn" style="display: none;">Clear</button>
+          </div>
+          <div class="select-wrapper">
+            <select id="hullSelect">
+              <option value="" disabled selected>Select Hull Type...</option>
+            </select>
+          </div>
+        <div class="selected-chips-container" id="selectedHullsList"></div>
+        </div>
+
+        <!-- Boat Length Range Filter -->
+        <div class="control-group" id="lengthFilterGroup">
+          <div class="control-header">
+            <label>Filter by Boat Length</label>
+            <button type="button" class="clear-filter-btn" id="clearLengthBtn" style="display: none;">Reset</button>
+          </div>
+          <div class="length-slider-wrap">
+            <div class="length-slider-labels">
+              <span id="lengthMinLabel">–</span>
+              <span id="lengthMaxLabel">–</span>
+            </div>
+            <div class="length-slider-track-wrap">
+              <div class="length-slider-track" id="lengthSliderTrack"></div>
+              <input type="range" id="lengthSliderMin" class="length-slider" min="0" max="100" value="0" step="1">
+              <input type="range" id="lengthSliderMax" class="length-slider" min="0" max="100" value="100" step="1">
+            </div>
+          </div>
+        </div>
+
+        <!-- Metric Selector (GPH, MPG, MPH) -->
+        <div class="control-group">
+          <label>Select Metric</label>
+          <div class="metric-tabs">
+            <button type="button" class="metric-btn active" data-metric="gph" id="btnGph">Fuel (GPH)</button>
+            <button type="button" class="metric-btn" data-metric="mpg" id="btnMpg">Economy (GPM)</button>
+            <button type="button" class="metric-btn" data-metric="mph" id="btnMph">Speed (MPH)</button>
+          </div>
+          <button type="button" class="per-engine-toggle" id="perEngineToggle" title="Divide fuel &amp; economy values by engine count">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"></path>
+            </svg>
+            Per Engine
+          </button>
+        </div>
+
+        <!-- Unit System Configuration -->
+        <div class="control-group">
+          <label>Unit System</label>
+          <div class="unit-selectors-container">
+            <div class="unit-selector-row">
+              <span class="unit-row-label">Speed</span>
+              <div class="unit-tabs" id="speedUnitTabs">
+                <button type="button" class="unit-btn active" data-unit="mph">MPH</button>
+                <button type="button" class="unit-btn" data-unit="knts">knts</button>
+                <button type="button" class="unit-btn" data-unit="ms">kph</button>
+              </div>
+            </div>
+            <div class="unit-selector-row">
+              <span class="unit-row-label">Length</span>
+              <div class="unit-tabs" id="lengthUnitTabs">
+                <button type="button" class="unit-btn active" data-unit="ft">ft</button>
+                <button type="button" class="unit-btn" data-unit="m">m</button>
+              </div>
+            </div>
+            <div class="unit-selector-row">
+              <span class="unit-row-label">Volume</span>
+              <div class="unit-tabs" id="volumeUnitTabs">
+                <button type="button" class="unit-btn active" data-unit="gal">gal</button>
+                <button type="button" class="unit-btn" data-unit="l">l</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.sidebar-content -->
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Summary metrics cards -->
+      <section class="summary-bar">
+        <div class="summary-card">
+          <span class="summary-label">Selected Engine</span>
+          <span class="summary-value" id="summaryEngine">-</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Total Boat Models Match</span>
+          <span class="summary-value" id="summaryBoatCount">0</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Plotted Curves</span>
+          <span class="summary-value" id="summaryPlottedCount">0</span>
+        </div>
+      </section>
+
+      <!-- Chart Panel -->
+      <section class="chart-card">
+        <div class="chart-header">
+          <h2 class="chart-title" id="chartTitle">RPM vs Fuel Consumption (GPH)</h2>
+          <div class="export-actions">
+            <button class="export-btn" id="exportPdfBtn" title="Export as PDF / Print">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
+              <span>PDF</span>
+            </button>
+            <button class="export-btn" id="exportHtmlBtn" title="Export as Interactive HTML">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 18 22 12 16 6"></polyline>
+                <polyline points="8 6 2 12 8 18"></polyline>
+              </svg>
+              <span>HTML</span>
+            </button>
+            <button class="export-btn" id="resetZoomBtn" title="Reset Chart Zoom">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+              </svg>
+              <span>Reset Zoom</span>
+            </button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="performanceChart"></canvas>
+        </div>
+      </section>
+
+      <!-- Color Mode Panel -->
+      <section class="color-mode-card" id="colorModeCard" style="display: none;">
+        <div class="color-mode-inline">
+          <label for="colorModeSelect">Color Mode</label>
+          <div class="select-wrapper">
+            <select id="colorModeSelect">
+              <option value="unique" selected>Unique Color per Series</option>
+              <option value="boat_manufacturer">By Boat Manufacturer</option>
+              <option value="hull_length_exact">By Boat Length (Continuous)</option>
+              <option value="hull_length_range">By Boat Length Range</option>
+              <option value="engine_key">By Engine Type & Config</option>
+              <option value="engine_power_config">By Engine Power & Config</option>
+              <option value="engine_brand">By Engine Manufacturer (Honda/Yamaha)</option>
+              <option value="hull_type">By Hull Type</option>
+              <option value="wind_velocity">By Wind Speed</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Custom Legend Panel -->
+      <section class="legend-card" id="legendCard" style="display: none;">
+        <!-- Group Legend (shown only when grouped color mode is active) -->
+        <div id="groupLegendSection" style="display: none; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
+          <div class="legend-header" style="margin-bottom: 0.5rem;">
+            <label style="font-size: 0.75rem; letter-spacing: 0.05em;">Color Group Legend (Click to toggle group)</label>
+          </div>
+          <div id="groupLegend" class="custom-legend"></div>
+        </div>
+
+        <!-- Spectrum Legend (shown only for hull_length_exact color mode) -->
+        <div id="spectrumLegendSection" style="display: none; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
+          <div class="legend-header" style="margin-bottom: 0.6rem;">
+            <label style="font-size: 0.75rem; letter-spacing: 0.05em;">Hull Length Color Scale</label>
+          </div>
+          <div class="spectrum-legend-wrap">
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-ticks" id="spectrumTicks"></div>
+          </div>
+          <div id="spectrumUnknownToggle" class="custom-legend" style="margin-top: 0.75rem;"></div>
+        </div>
+
+        <!-- Individual Curves Legend -->
+        <div id="curvesLegendSection">
+          <div class="legend-header" style="margin-bottom: 0.5rem;">
+            <label id="curvesLegendTitle" style="font-size: 0.75rem; letter-spacing: 0.05em;">Plotted Curves Legend</label>
+          </div>
+          <div id="chartLegend" class="custom-legend"></div>
+        </div>
+      </section>
+
+      <!-- Plotted Boat Details Panel -->
+      <section class="details-card" id="detailsCard" style="display: none;">
+        <div class="details-header">
+          <h2 class="details-title">Plotted Boat Models Details</h2>
+        </div>
+        <div class="table-container">
+          <table class="details-table" id="detailsTable">
+            <thead>
+              <tr>
+                <th>Color</th>
+                <th>Boat Model</th>
+                <th>Engine</th>
+                <th>Propeller</th>
+                <th>Weight (lbs)</th>
+                <th>Test Conditions</th>
+                <th>Original PDF</th>
+              </tr>
+            </thead>
+            <tbody id="detailsTableBody">
+              <!-- Populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Help Modal -->
+  <div id="helpModal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="modalTitle">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">Outboards Performance Viewer Guide</h2>
+        <button class="modal-close-btn" id="closeHelpBtn" aria-label="Close help">&times;</button>
+      </div>
+      <div class="modal-body">
+        <section class="help-section">
+          <h3><span class="help-number">1</span> Search & Select Engines</h3>
+          <p>Use the <strong>Search & Select Engines</strong> filter in the sidebar to search for engines. You can type in search queries and select engines from the dropdown to add them to your workspace. Use <strong>[Add All Filtered Engines]</strong> to quickly add everything matching your search criteria.</p>
+        </section>
+        
+        <section class="help-section">
+          <h3><span class="help-number">2</span> Refine with Filters</h3>
+          <p>Narrow down your comparisons by choosing specific <strong>Horsepower (HP)</strong> levels, <strong>Engine Configurations</strong> (Single, Twin, etc.), or <strong>Hull Types</strong>. Use the dual-handle <strong>Boat Length</strong> slider to restrict boat lengths.</p>
+        </section>
+        
+        <section class="help-section">
+          <h3><span class="help-number">3</span> Performance Metrics</h3>
+          <p>Toggle between three main metrics to display on the chart:</p>
+          <ul>
+            <li><strong>Fuel (GPH):</strong> Fuel consumption rate in gallons/liters per hour.</li>
+            <li><strong>Economy (GPM / L/mi):</strong> Fuel economy rate per distance traveled.</li>
+            <li><strong>Speed (MPH / knts / kph):</strong> Boat speed over ground.</li>
+          </ul>
+          <p>Use the <strong>"Per Engine"</strong> toggle to divide fuel/economy consumption values by the engine count.</p>
+        </section>
+
+        <section class="help-section">
+          <h3><span class="help-number">4</span> Unit Systems</h3>
+          <p>Customize your viewing preference by changing units on the fly for **Speed** (MPH, knots, kph), **Length** (feet, meters), and **Volume** (gallons, liters). The interface handles conversion instantly.</p>
+        </section>
+        
+        <section class="help-section">
+          <h3><span class="help-number">5</span> Advanced Color Modes</h3>
+          <p>Use the <strong>Color Mode</strong> dropdown under the chart to group or color datasets by boat manufacturer, exact boat length, length range, engine key, engine brand, hull type, or wind velocity.</p>
+        </section>
+
+        <section class="help-section">
+          <h3><span class="help-number">6</span> Chart Controls & Export</h3>
+          <ul>
+            <li><strong>Interactive Legend:</strong> Click on items in the Plotted Curves Legend or Color Group Legend to toggle visibility of individual lines or entire groups on the chart.</li>
+            <li><strong>Zoom/Pan:</strong> Use your mouse wheel to zoom in/out, or click-and-drag to pan the graph. Click <strong>Reset Zoom</strong> to restore the default view.</li>
+            <li><strong>Data Table:</strong> Click on any data point in the chart to automatically scroll to and highlight its details in the bottom table.</li>
+            <li><strong>Export Actions:</strong> Export your current view using the <strong>PDF</strong> button (for printing or saving a static report) or the <strong>HTML</strong> button to download a standalone, fully-interactive dashboard containing the selected datasets.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
