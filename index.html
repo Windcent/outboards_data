@@ -232,6 +232,7 @@
               <option value="unique" selected>Unique Color per Series</option>
               <option value="boat_manufacturer">By Boat Manufacturer</option>
               <option value="hull_length_exact">By Boat Length (Continuous)</option>
+              <option value="boat_weight_exact">By Boat Weight (Continuous)</option>
               <option value="hull_length_range">By Boat Length Range</option>
               <option value="engine_key">By Engine Type & Config</option>
               <option value="engine_power_config">By Engine Power & Config</option>
@@ -256,7 +257,7 @@
         <!-- Spectrum Legend (shown only for hull_length_exact color mode) -->
         <div id="spectrumLegendSection" style="display: none; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
           <div class="legend-header" style="margin-bottom: 0.6rem;">
-            <label style="font-size: 0.75rem; letter-spacing: 0.05em;">Hull Length Color Scale</label>
+            <label id="spectrumLegendTitle" style="font-size: 0.75rem; letter-spacing: 0.05em;">Hull Length Color Scale</label>
           </div>
           <div class="spectrum-legend-wrap">
             <div class="spectrum-bar"></div>

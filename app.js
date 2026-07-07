@@ -6,7 +6,7 @@ let activePowers = [];    // Array of selected power levels (numbers)
 let activeConfigs = [];   // Array of selected configurations (strings)
 let activeHulls = [];     // Array of selected hull types (strings)
 let selectedMetric = "gph"; // 'gph', 'mpg', 'mph'
-let selectedColorMode = "unique"; // 'unique', 'boat_manufacturer', 'hull_length_exact', 'hull_length_range', 'engine_key', 'engine_brand'
+let selectedColorMode = "unique"; // 'unique', 'boat_manufacturer', 'hull_length_exact', 'boat_weight_exact', 'hull_length_range', 'engine_key', 'engine_brand'
 let perEngine = false; // divide fuel/economy by engine count
 let activeSpeedUnit = "mph"; // 'mph', 'knts', 'ms'
 let activeLengthUnit = "ft"; // 'ft', 'm'
@@ -276,6 +276,26 @@ function parseLengthToFeet(lengthStr) {
   }
 }
 
+// Parses boat weight from boat specifications, prioritizing tested weight over dry weight.
+// Strips commas and units to parse a raw numerical value.
+function parseWeightToLbs(boatSpecs) {
+  if (!boatSpecs) return null;
+  
+  const parseNum = (str) => {
+    if (!str) return null;
+    const cleaned = str.replace(/,/g, '').match(/\d+(\.\d+)?/);
+    return cleaned ? parseFloat(cleaned[0]) : null;
+  };
+  
+  const tested = parseNum(boatSpecs.weight_as_tested);
+  if (tested !== null) return tested;
+  
+  const dry = parseNum(boatSpecs.dry_weight);
+  if (dry !== null) return dry;
+  
+  return null;
+}
+
 // Formats a float feet value back to standard feet/inches format (e.g. 25.17 -> 25' 2", 25 -> 25')
 function formatFeetAndInches(feetVal) {
   if (feetVal === null || feetVal === undefined || isNaN(feetVal)) return "Unknown Length";
@@ -312,6 +332,12 @@ function getRecordGroupKey(record) {
         return `${(feet * 0.3048).toFixed(2)} m`;
       }
       return formatFeetAndInches(feet);
+    }
+    
+    case "boat_weight_exact": {
+      const weight = parseWeightToLbs(record.boat_specs);
+      if (weight === null) return "Unknown Weight";
+      return `${Math.round(weight).toLocaleString()} lbs`;
     }
     
     case "hull_length_range": {
@@ -1128,7 +1154,7 @@ function updateChart() {
   // Determine group colors mapping if color mode is not unique
   const groupColors = {};
 
-  // For hull_length_exact: compute min/max feet across all plotted records for the spectrum
+  // For hull_length_exact / boat_weight_exact: compute min/max across all plotted records for the spectrum
   let lengthSpectrumMin = null;
   let lengthSpectrumMax = null;
   if (selectedColorMode === "hull_length_exact") {
@@ -1141,13 +1167,25 @@ function updateChart() {
     });
   }
 
+  let weightSpectrumMin = null;
+  let weightSpectrumMax = null;
+  if (selectedColorMode === "boat_weight_exact") {
+    recordsToPlot.forEach(record => {
+      const lbs = parseWeightToLbs(record.boat_specs);
+      if (lbs !== null) {
+        if (weightSpectrumMin === null || lbs < weightSpectrumMin) weightSpectrumMin = lbs;
+        if (weightSpectrumMax === null || lbs > weightSpectrumMax) weightSpectrumMax = lbs;
+      }
+    });
+  }
+
   // Maps a 0–1 value to a blue→cyan→green→yellow→red spectrum (HSL hue 240→0)
   function spectrumColor(t) {
     const hue = Math.round((1 - t) * 240); // 240=blue at short, 0=red at long
     return `hsl(${hue}, 90%, 55%)`;
   }
 
-  if (selectedColorMode !== "unique" && selectedColorMode !== "hull_length_exact") {
+  if (selectedColorMode !== "unique" && selectedColorMode !== "hull_length_exact" && selectedColorMode !== "boat_weight_exact") {
     const uniqueKeys = new Set();
     recordsToPlot.forEach(record => {
       uniqueKeys.add(getRecordGroupKey(record));
@@ -1231,6 +1269,7 @@ function updateChart() {
     
     // Assign color based on the selected mode
     let color;
+    let isHidden = false;
     if (selectedColorMode === "unique") {
       color = getLineColor(index);
     } else if (selectedColorMode === "hull_length_exact") {
@@ -1240,6 +1279,16 @@ function updateChart() {
         color = spectrumColor(t);
       } else {
         color = "#94a3b8"; // fallback for unknown / single-value range
+        isHidden = true;
+      }
+    } else if (selectedColorMode === "boat_weight_exact") {
+      const lbs = parseWeightToLbs(record.boat_specs);
+      if (lbs !== null && weightSpectrumMin !== null && weightSpectrumMax !== null && weightSpectrumMax > weightSpectrumMin) {
+        const t = (lbs - weightSpectrumMin) / (weightSpectrumMax - weightSpectrumMin);
+        color = spectrumColor(t);
+      } else {
+        color = "#94a3b8"; // fallback for unknown / single-value range
+        isHidden = true;
       }
     } else {
       color = groupColors[getRecordGroupKey(record)] || "#cccccc";
@@ -1255,6 +1304,7 @@ function updateChart() {
       pointRadius: 4,
       pointHoverRadius: 6,
       fill: false,
+      hidden: isHidden,
       originalRecord: record // Save reference to record
     };
   });
@@ -1404,9 +1454,16 @@ function updateSpectrumUnknownActiveState(datasets) {
   
   const unknownIndices = [];
   datasets.forEach((ds, idx) => {
-    const ft = parseLengthToFeet(ds.originalRecord && ds.originalRecord.boat_length);
-    if (ft === null) {
-      unknownIndices.push(idx);
+    if (selectedColorMode === "hull_length_exact") {
+      const ft = parseLengthToFeet(ds.originalRecord && ds.originalRecord.boat_length);
+      if (ft === null) {
+        unknownIndices.push(idx);
+      }
+    } else if (selectedColorMode === "boat_weight_exact") {
+      const lbs = parseWeightToLbs(ds.originalRecord && ds.originalRecord.boat_specs);
+      if (lbs === null) {
+        unknownIndices.push(idx);
+      }
     }
   });
   
@@ -1443,7 +1500,7 @@ function updateLegendActiveStates(datasets, groupColors) {
 
 function updateGroupLegendActiveStates(datasets, groupColors) {
   const groupLegend = document.getElementById("groupLegend");
-  if (!groupLegend || !groupColors || selectedColorMode === "unique" || selectedColorMode === "hull_length_exact") return;
+  if (!groupLegend || !groupColors || selectedColorMode === "unique" || selectedColorMode === "hull_length_exact" || selectedColorMode === "boat_weight_exact") return;
   
   const groupItems = groupLegend.querySelectorAll(".legend-item");
   const sortedGroupKeys = Object.keys(groupColors).sort((a, b) => {
@@ -1537,15 +1594,33 @@ function buildCustomLegend(datasets, groupColors) {
     curvesLegendSection.style.display = (selectedColorMode === "unique") ? "block" : "none";
   }
   
-  // --- Spectrum Legend (hull_length_exact) ---
-  if (selectedColorMode === "hull_length_exact" && spectrumSection && spectrumTicks) {
+  // --- Spectrum Legend (hull_length_exact / boat_weight_exact) ---
+  if ((selectedColorMode === "hull_length_exact" || selectedColorMode === "boat_weight_exact") && spectrumSection && spectrumTicks) {
+    // Set legend title dynamically
+    const spectrumLegendTitle = document.getElementById("spectrumLegendTitle");
+    if (spectrumLegendTitle) {
+      if (selectedColorMode === "hull_length_exact") {
+        spectrumLegendTitle.textContent = "Hull Length Color Scale";
+      } else {
+        spectrumLegendTitle.textContent = "Boat Weight Color Scale";
+      }
+    }
+
     // Compute min/max from datasets
-    let minFt = null, maxFt = null;
+    let minVal = null, maxVal = null;
     datasets.forEach(ds => {
-      const ft = parseLengthToFeet(ds.originalRecord && ds.originalRecord.boat_length);
-      if (ft !== null) {
-        if (minFt === null || ft < minFt) minFt = ft;
-        if (maxFt === null || ft > maxFt) maxFt = ft;
+      if (selectedColorMode === "hull_length_exact") {
+        const ft = parseLengthToFeet(ds.originalRecord && ds.originalRecord.boat_length);
+        if (ft !== null) {
+          if (minVal === null || ft < minVal) minVal = ft;
+          if (maxVal === null || ft > maxVal) maxVal = ft;
+        }
+      } else if (selectedColorMode === "boat_weight_exact") {
+        const lbs = parseWeightToLbs(ds.originalRecord && ds.originalRecord.boat_specs);
+        if (lbs !== null) {
+          if (minVal === null || lbs < minVal) minVal = lbs;
+          if (maxVal === null || lbs > maxVal) maxVal = lbs;
+        }
       }
     });
 
@@ -1559,11 +1634,16 @@ function buildCustomLegend(datasets, groupColors) {
       const t = i / (tickCount - 1);
       const tick = document.createElement("span");
       tick.className = "spectrum-tick";
-      if (minFt !== null && maxFt !== null) {
-        const ftVal = minFt + t * (maxFt - minFt);
-        const label = activeLengthUnit === "m"
-          ? `${(ftVal * 0.3048).toFixed(1)} m`
-          : formatFeetAndInches(ftVal);
+      if (minVal !== null && maxVal !== null) {
+        const val = minVal + t * (maxVal - minVal);
+        let label;
+        if (selectedColorMode === "hull_length_exact") {
+          label = activeLengthUnit === "m"
+            ? `${(val * 0.3048).toFixed(1)} m`
+            : formatFeetAndInches(val);
+        } else {
+          label = `${Math.round(val).toLocaleString()} lbs`;
+        }
         tick.textContent = label;
       } else {
         tick.textContent = "–";
@@ -1578,9 +1658,12 @@ function buildCustomLegend(datasets, groupColors) {
       
       const unknownIndices = [];
       datasets.forEach((ds, idx) => {
-        const ft = parseLengthToFeet(ds.originalRecord && ds.originalRecord.boat_length);
-        if (ft === null) {
-          unknownIndices.push(idx);
+        if (selectedColorMode === "hull_length_exact") {
+          const ft = parseLengthToFeet(ds.originalRecord && ds.originalRecord.boat_length);
+          if (ft === null) unknownIndices.push(idx);
+        } else if (selectedColorMode === "boat_weight_exact") {
+          const lbs = parseWeightToLbs(ds.originalRecord && ds.originalRecord.boat_specs);
+          if (lbs === null) unknownIndices.push(idx);
         }
       });
       
@@ -1600,7 +1683,8 @@ function buildCustomLegend(datasets, groupColors) {
         
         const labelSpan = document.createElement("span");
         labelSpan.className = "legend-label";
-        labelSpan.textContent = `Unknown Length (${unknownIndices.length} series)`;
+        const labelType = selectedColorMode === "hull_length_exact" ? "Length" : "Weight";
+        labelSpan.textContent = `Unknown ${labelType} (${unknownIndices.length} series)`;
         
         toggleItem.appendChild(colorCircle);
         toggleItem.appendChild(labelSpan);
@@ -1634,7 +1718,7 @@ function buildCustomLegend(datasets, groupColors) {
   }
 
   // 1. Group Legend Section
-  if (selectedColorMode !== "unique" && selectedColorMode !== "hull_length_exact" && groupColors && groupLegend && groupLegendSection) {
+  if (selectedColorMode !== "unique" && selectedColorMode !== "hull_length_exact" && selectedColorMode !== "boat_weight_exact" && groupColors && groupLegend && groupLegendSection) {
     groupLegendSection.style.display = "block";
     
     // Sort group keys
@@ -1787,14 +1871,14 @@ function buildCustomLegend(datasets, groupColors) {
     colorCircle.addEventListener("click", toggleVisibility);
     labelSpan.addEventListener("click", toggleVisibility);
     
-    // PDF Logo button (linked to the local file)
-    const pdfPath = record.local_file_path || record.pdf_url;
+    // PDF Logo button (linked to the external URL by default)
+    const pdfPath = record.pdf_url || record.local_file_path;
     if (pdfPath) {
       const pdfBtn = document.createElement("a");
       pdfBtn.className = "legend-pdf-btn";
       pdfBtn.href = pdfPath;
       pdfBtn.target = "_blank";
-      pdfBtn.title = "Open local PDF Bulletin";
+      pdfBtn.title = "Open PDF Bulletin";
       pdfBtn.innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -1885,7 +1969,7 @@ function buildDetailsTable(datasets) {
     
     // Action/PDF Column
     const tdAction = document.createElement("td");
-    const pdfPath = record.local_file_path || record.pdf_url;
+    const pdfPath = record.pdf_url || record.local_file_path;
     if (pdfPath) {
       const btn = document.createElement("a");
       btn.className = "pdf-action-btn";
@@ -2228,7 +2312,7 @@ async function exportToHtml() {
     const propDesc = record.propeller_desc || (record.propeller_specs && record.propeller_specs.diameter_pitch) || "-";
     const weight = formatWeight(record.boat_specs);
     const testConditions = formatTestConditions(record.test_conditions);
-    const pdfPath = record.local_file_path || record.pdf_url || null;
+    const pdfPath = record.pdf_url || record.local_file_path || null;
     const sourceUrl = record.pdf_url || null;
     
     return {
