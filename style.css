@@ -30,34 +30,121 @@ body {
   overflow-y: auto;
 }
 
-/* Header */
+/* ── Keyframes ─────────────────────────────────────────── */
+@keyframes headerGradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes borderGlow {
+  0%, 100% { opacity: 0.6; box-shadow: 0 1px 0 0 rgba(212,175,55,0.25), 0 2px 12px 0 rgba(212,175,55,0.08); }
+  50%       { opacity: 1;   box-shadow: 0 1px 0 0 rgba(212,175,55,0.55), 0 4px 24px 0 rgba(212,175,55,0.18); }
+}
+
+@keyframes shimmerSweep {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+@keyframes subtitleFade {
+  0%, 100% { opacity: 0.65; letter-spacing: 0.01em; }
+  50%       { opacity: 0.90; letter-spacing: 0.03em; }
+}
+
+/* ── Header ────────────────────────────────────────────── */
 header {
-  background-color: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(
+    120deg,
+    #151515 0%,
+    #1e1b0f 30%,
+    #1a1a1a 55%,
+    #1b160a 80%,
+    #151515 100%
+  );
+  background-size: 300% 300%;
+  animation: headerGradientShift 25s ease infinite;
+
+  /* glowing bottom border */
+  border-bottom: 1px solid rgba(212,175,55,0.35);
+  animation: headerGradientShift 25s ease infinite,
+             borderGlow 9s ease-in-out infinite;
+
   padding: 1rem 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   z-index: 10;
+  position: relative;
+  overflow: hidden;
+}
+
+/* subtle radial glow orb in the background */
+header::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 120px;
+  background: radial-gradient(ellipse at center, rgba(212,175,55,0.12) 0%, transparent 70%);
+  pointer-events: none;
+  animation: borderGlow 10s ease-in-out infinite;
+}
+
+/* shimmer streak that sweeps across */
+header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255,255,255,0.04) 50%,
+    transparent 65%
+  );
+  background-size: 200% 100%;
+  animation: shimmerSweep 18s linear infinite;
+  pointer-events: none;
 }
 
 h1 {
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.025em;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  position: relative;
+}
+
+/* shiny animated gradient text on the whole h1 */
+h1 {
+  background: linear-gradient(
+    90deg,
+    #f8fafc 20%,
+    #d4af37 38%,
+    #ffe88a 50%,
+    #d4af37 62%,
+    #f8fafc 80%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerSweep 14s linear infinite;
 }
 
 h1 span {
-  color: var(--accent-primary);
+  /* span inherits gradient from h1 — no override needed */
 }
 
 .subtitle {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
 }
+
 
 /* App Container */
 .app-container {

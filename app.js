@@ -35,6 +35,7 @@ const clearConfigsBtn = document.getElementById("clearConfigsBtn");
 const clearHullsBtn = document.getElementById("clearHullsBtn");
 const exportPdfBtn = document.getElementById("exportPdfBtn");
 const exportHtmlBtn = document.getElementById("exportHtmlBtn");
+const exportJsonBtn = document.getElementById("exportJsonBtn");
 const chartTitle = document.getElementById("chartTitle");
 const summaryEngine = document.getElementById("summaryEngine");
 const summaryBoatCount = document.getElementById("summaryBoatCount");
@@ -2757,6 +2758,115 @@ async function exportToHtml() {
     });
 }
 
+// Export graph data and legend to a structured JSON file
+function exportToJson() {
+  if (!chartInstance || activeEngineIds.length === 0) {
+    alert("No curves plotted to export.");
+    return;
+  }
+
+  const details = getMetricDetails();
+
+  // Build legend: one entry per color group (or per series when mode is 'unique')
+  const legendMap = {};
+  chartInstance.data.datasets.forEach((ds) => {
+    const record = ds.originalRecord;
+    const groupKey = selectedColorMode === "unique" ? ds.label : (getRecordGroupKey(record) || ds.label);
+    if (!legendMap[groupKey]) {
+      legendMap[groupKey] = {
+        label: groupKey,
+        color: ds.borderColor
+      };
+    }
+  });
+  const legend = Object.values(legendMap);
+
+  // Build series array — one object per plotted curve
+  const series = chartInstance.data.datasets.map((ds) => {
+    const record = ds.originalRecord;
+    const groupKey = selectedColorMode === "unique" ? ds.label : (getRecordGroupKey(record) || ds.label);
+
+    const points = ds.data.map((pt) => {
+      const entry = { rpm: pt.x, value: pt.y };
+      if (pt.raw) {
+        const mphVal = pt.raw.mph !== undefined ? parseFloat(pt.raw.mph) : null;
+        const gphVal = pt.raw.gph !== undefined ? parseFloat(pt.raw.gph) : null;
+        if (mphVal !== null) entry.speed_mph_raw = mphVal;
+        if (gphVal !== null) entry.fuel_gph_raw = gphVal;
+      }
+      return entry;
+    });
+
+    return {
+      label: ds.label,
+      color: ds.borderColor,
+      legend_group: groupKey,
+      boat_manufacturer: record.boat_manufacturer || null,
+      boat_model: record.boat_model || null,
+      boat_length: record.boat_length || null,
+      engine_name: record.engine_name || null,
+      engine_config: getConfiguration(record),
+      propeller: record.propeller_desc || (record.propeller_specs && record.propeller_specs.diameter_pitch) || null,
+      weight_lbs: parseWeightToLbs(record.boat_specs),
+      source_pdf: record.pdf_url || record.local_file_path || null,
+      data: points
+    };
+  });
+
+  // Active filters summary
+  const filters = {
+    engines: activeEngineIds.slice(),
+    power_hp: activePowers.slice(),
+    configurations: activeConfigs.slice(),
+    hull_types: activeHulls.slice(),
+    length_min_ft: activeLengthMin,
+    length_max_ft: activeLengthMax
+  };
+
+  const output = {
+    exported_at: new Date().toISOString(),
+    chart_title: chartTitle.textContent,
+    metric: selectedMetric,
+    metric_label: details.label,
+    metric_unit: details.unit,
+    speed_unit: activeSpeedUnit,
+    volume_unit: activeVolumeUnit,
+    length_unit: activeLengthUnit,
+    color_mode: selectedColorMode,
+    per_engine: perEngine,
+    filters,
+    legend,
+    series
+  };
+
+  const json = JSON.stringify(output, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+
+  const sanitize = (str) => str.replace(/[^a-zA-Z0-9\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  const filenameParts = [];
+  if (activeEngineIds.length === 1) filenameParts.push(sanitize(activeEngineIds[0]));
+  else if (activeEngineIds.length > 1) filenameParts.push(`${activeEngineIds.length}Engines`);
+  if (activePowers.length > 0) filenameParts.push(sanitize(activePowers.map(p => `${p}HP`).join('-')));
+  if (activeConfigs.length > 0) filenameParts.push(sanitize(activeConfigs.join('-')));
+  if (activeHulls.length > 0) filenameParts.push(sanitize(activeHulls.join('-')));
+  if (activeLengthMin !== null || activeLengthMax !== null) {
+    const lo = activeLengthMin !== null ? Math.round(activeLengthMin) : lengthSliderAbsMin;
+    const hi = activeLengthMax !== null ? Math.round(activeLengthMax) : lengthSliderAbsMax;
+    const unit = activeLengthUnit === 'm' ? 'm' : 'ft';
+    filenameParts.push(`${lo}-${hi}${unit}`);
+  }
+  filenameParts.push(selectedMetric.toUpperCase());
+
+  a.download = (filenameParts.length > 0 ? filenameParts.join('__') : 'Outboard_Performance') + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 exportPdfBtn.addEventListener("click", () => {
   if (!chartInstance || activeEngineIds.length === 0) {
     alert("No curves plotted to export.");
@@ -2766,6 +2876,8 @@ exportPdfBtn.addEventListener("click", () => {
 });
 
 exportHtmlBtn.addEventListener("click", exportToHtml);
+
+if (exportJsonBtn) exportJsonBtn.addEventListener("click", exportToJson);
 
 const resetZoomBtn = document.getElementById("resetZoomBtn");
 if (resetZoomBtn) {
